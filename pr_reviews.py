@@ -3,7 +3,7 @@ import re
 import requests
 
 # Replace with your GitHub personal access token
-TOKEN = "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"
+TOKEN = "TOKEN"
 
 def get_diff_hunk_for_comment(pr, comment):
     lines = []
