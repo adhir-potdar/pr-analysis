@@ -93,9 +93,24 @@ def main():
         g = Github(TOKEN)
         repo = g.get_repo(f"{repo_owner}/{repo_name}")
         pr = repo.get_pull(int(pr_number))
+
         # Get source and target branches
         source_branch = pr.head.ref  # Source/Head branch
         target_branch = pr.base.ref  # Target/Base branch
+
+        # Get PR description
+        description = pr.body
+
+        # Get merge and close timestamps
+        merge_time = pr.merged_at
+        close_time = pr.closed_at
+        
+        # Convert to UTC if timestamps are not None
+        if merge_time:
+            merge_time = merge_time.replace(tzinfo=timezone.utc)
+        if close_time:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+
         print("=" * 50)
         print("\nPull Request Details:")
         print("Repository Name: ", repo_name)
@@ -103,6 +118,9 @@ def main():
         print("PR Number: ", pr_number)
         print("Source Branch: ", source_branch)
         print("Target Branch: ", target_branch)
+        print("Description: ", description)
+        print("Merge Timestamp: ", merge_time)
+        print("Close Timestamp: ", close_time)
 
         review_comments = get_review_comments(pr)
 
