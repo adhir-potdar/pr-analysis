@@ -93,6 +93,16 @@ def main():
         g = Github(TOKEN)
         repo = g.get_repo(f"{repo_owner}/{repo_name}")
         pr = repo.get_pull(int(pr_number))
+        # Get source and target branches
+        source_branch = pr.head.ref  # Source/Head branch
+        target_branch = pr.base.ref  # Target/Base branch
+        print("=" * 50)
+        print("\nPull Request Details:")
+        print("Repository Name: ", repo_name)
+        print("Repository Owner: ", repo_owner)
+        print("PR Number: ", pr_number)
+        print("Source Branch: ", source_branch)
+        print("Target Branch: ", target_branch)
 
         review_comments = get_review_comments(pr)
 
@@ -119,6 +129,8 @@ def main():
         #comments = get_review_comments_with_diff_hunks(repo_owner, repo_name, pr_number, TOKEN)
         #for comment in comments:
         #    print(comment['diff_hunk'])
+
+        print("=" * 50)
 
     except ValueError as ve:
         print(f"Error: {ve}")

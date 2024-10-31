@@ -4,7 +4,7 @@ import pytz
 import re
 
 # Replace with your GitHub personal access token
-TOKEN = "YOUR_GITHUB_TOKEN"
+TOKEN = "TOKEN"
 
 def parse_pr_url(url):
     pattern = r"https://github.com/([^/]+)/([^/]+)/pull/(\d+)"
