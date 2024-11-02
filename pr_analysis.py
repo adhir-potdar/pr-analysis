@@ -240,12 +240,24 @@ class PRAnalysis:
             print("-" * 50)
         print("=" * 50)
 
-    def extract_first_last_reviews_by_timestamp(self, timestamp):
+    def extract_first_last_reviews_after_timestamp(self, timestamp):
         first_review = None
         last_review = None
 
         for comment in self.comments_data:
             if comment['created_at'] >= timestamp:
+                if not first_review:
+                    first_review = comment
+                last_review = comment
+
+        return first_review, last_review
+        
+    def extract_first_last_reviews_before_timestamp(self, timestamp):
+        first_review = None
+        last_review = None
+
+        for comment in self.comments_data:
+            if comment['created_at'] <= timestamp:
                 if not first_review:
                     first_review = comment
                 last_review = comment
@@ -270,7 +282,7 @@ class PRAnalysis:
         pr_analysis_dict['close_timestamp'] = self.close_time
 
         #build the 1st & last review suggestion data
-        first_review, last_review = self.extract_first_last_reviews_by_timestamp(datetime.fromtimestamp(0, tz=timezone.utc))
+        first_review, last_review = self.extract_first_last_reviews_after_timestamp(datetime.fromtimestamp(0, tz=timezone.utc))
         if first_review:
            pr_analysis_dict['first_suggestion_review_type'] = first_review['reviewer']
            pr_analysis_dict['first_suggestion_review_timestamp'] = str(first_review['created_at'])
@@ -284,12 +296,38 @@ class PRAnalysis:
         else:
             pr_analysis_dict['last_suggestion_review_type'] = 'N.A.'
             pr_analysis_dict['last_suggestion_review_timestamp'] = 'N.A.'
+
+        #build the 1st & last commit and review data for PR creation and before 1st incremental commit ==> for full review
+        #TODO: this we will have to correlate with Bito analytics data if available.
+        num_pr_creation_commits = len(self.pr_creation_commits)
+        if num_pr_creation_commits > 0:
+            first_review, last_review = self.extract_first_last_reviews_before_timestamp(self.incremental_commits[0].commit.committer.date)
+            if first_review:
+                pr_analysis_dict['first_full_review_type'] = first_review['reviewer']
+                pr_analysis_dict['first_full_review_timestamp'] = str(first_review['created_at'])
+            else:
+                pr_analysis_dict['first_full_review_type'] = 'N.A.'
+                pr_analysis_dict['first_full_review_timestamp'] = 'N.A.'
+
+            if last_review:
+                pr_analysis_dict['last_full_review_type'] = last_review['reviewer']
+                pr_analysis_dict['last_full_review_timestamp'] = str(last_review['created_at'])
+            else:
+                pr_analysis_dict['last_full_review_type'] = 'N.A.'
+                pr_analysis_dict['last_full_review_timestamp'] = 'N.A.'
+
+        else:
+            pr_analysis_dict['first_full_review_type'] = 'N.A.'
+            pr_analysis_dict['first_full_review_timestamp'] = 'N.A.'
+            pr_analysis_dict['last_full_review_type'] = 'N.A.'
+            pr_analysis_dict['last_full_review_timestamp'] = 'N.A.'
                 
         #build the 1st & last incremental commit and review data.
+        #TODO: this we will have to correlate with Bito analytics data if available.
         num_incremental_commits = len(self.incremental_commits)
         if num_incremental_commits > 0:
             pr_analysis_dict['first_incremental_commit_timestamp'] = str(self.incremental_commits[0].commit.committer.date)
-            first_review, last_review = self.extract_first_last_reviews_by_timestamp(self.incremental_commits[0].commit.committer.date)
+            first_review, last_review = self.extract_first_last_reviews_after_timestamp(self.incremental_commits[0].commit.committer.date)
             if first_review:
                 pr_analysis_dict['first_incremental_review_type'] = first_review['reviewer']
                 pr_analysis_dict['first_incremental_review_timestamp'] = str(first_review['created_at'])
@@ -298,7 +336,7 @@ class PRAnalysis:
                 pr_analysis_dict['first_incremental_review_timestamp'] = 'N.A.'
 
             pr_analysis_dict['last_incremental_commit_timestamp'] = str(self.incremental_commits[num_incremental_commits - 1].commit.committer.date)
-            first_review, last_review = self.extract_first_last_reviews_by_timestamp(self.incremental_commits[0].commit.committer.date)
+            first_review, last_review = self.extract_first_last_reviews_after_timestamp(self.incremental_commits[num_incremental_commits - 1].commit.committer.date)
             if last_review:
                 pr_analysis_dict['last_incremental_review_type'] = last_review['reviewer']
                 pr_analysis_dict['last_incremental_review_timestamp'] = str(last_review['created_at'])
