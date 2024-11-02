@@ -26,6 +26,7 @@ def get_commits_after_creation(commits, creation_time):
         commit_time = commit.commit.committer.date.replace(tzinfo=pytz.UTC)
         if commit_time > creation_time:
             commits_after_creation.append(commit)
+            print('Commit after PR Creation: ', str(commit))
     return commits_after_creation
 
 def main():
@@ -44,8 +45,21 @@ def main():
         
         for commit in commits_after_creation:
             print(f"Commit SHA: {commit.sha}")
+            print(f"Author: {commit.commit.author.name} <{commit.commit.author.email}>")
+            print(f"HTML URL: {commit.html_url}")
             print(f"Commit message: {commit.commit.message}")
             print(f"Commit time: {commit.commit.committer.date}")
+            # Print detailed stats
+            print("\nStats:")
+            if commit.stats:
+                print(f"Additions: {commit.stats.additions}")
+                print(f"Deletions: {commit.stats.deletions}")
+                print(f"Total changes: {commit.stats.total}")
+            # Print files changed
+            print("\nFiles changed:")
+            for file in commit.files:
+                print(f"- {file.filename} ({file.status})")
+                print(f"  Changes: +{file.additions} -{file.deletions}")
             print("---")
     
     except ValueError as ve:
