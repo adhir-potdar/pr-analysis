@@ -400,6 +400,14 @@ def main():
         pr_url = input("Enter the GitHub PR URL: ")
         pr_analysis_dict = pr_analysis.build_pr_analysis_data(pr_url)
         print(json.dumps(pr_analysis_dict, indent=2))
+
+        try:
+            # Write PR analysis dictionary to JSON file
+            with open('pr_analysis_data.json', 'w') as json_file:
+                json.dump(pr_analysis_dict, json_file, indent=4)
+                print('Wrote the PR Analysis data in file pr_analysis_data.json')
+        except Exception as e:
+            print('Failed to write PR analysis dictionary to JSON file.')
     else:
         print("PR Analysis cannot be retrieved beause it has reiceived invalid configuration.")
 
