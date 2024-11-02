@@ -1,6 +1,8 @@
 # File: pr_analysis.py
 
+from datetime import datetime, timezone
 from github import Github
+import json
 import re
 import requests
 import pytz
@@ -11,6 +13,9 @@ class PRAnalysis:
     def __init__(self, properties_file='pr_analysis.properties'):
         self.pr_analysis_config = PRAnalysisConfig(properties_file)
         self.properties = self.pr_analysis_config.read_properties()
+
+        #TODO: Validate git access token using API.
+        #TODO: Validate the PR URL against the GIT domain.
         
         if self.properties:
             self.git_provider = self.properties.get('git.provider', '')
@@ -23,8 +28,10 @@ class PRAnalysis:
             self.ai_reviewer_regex = self.properties.get('ai.reviewer.regex', '')
             if self.ai_reviewer and self.ai_reviewer_regex:
                 self.is_ai_reviewer = True
+            self.is_valid_config = True
         else:
             print("Failed to initialize PRAnalysis due to missing or invalid properties.")
+            self.is_valid_config = False
 
     def display_config(self):
         print("=" * 50)
@@ -87,18 +94,24 @@ class PRAnalysis:
         # Convert to UTC if timestamps are not None
         if self.merge_time:
             self.merge_time = self.merge_time.replace(tzinfo=timezone.utc)
+        else:
+            self.merge_time = 'N.A.'
         if self.close_time:
             self.close_time = self.close_time.replace(tzinfo=timezone.utc)
+        else:
+            self.close_time = 'N.A.'
 
     def separate_pr_commits(self):
         self.all_commits = self.pr.get_commits() 
         self.incremental_commits = []
+        self.pr_creation_commits = []
 
         for commit in self.all_commits:
             commit_time = commit.commit.committer.date.replace(tzinfo=pytz.UTC)
             if commit_time > self.creation_time:
                 self.incremental_commits.append(commit)
-                #print('Commit after PR Creation: ', str(commit))
+            else:
+                self.pr_creation_commits.append(commit)
 
     def print_pr_commits(self, commits):
         for commit in commits:
@@ -227,7 +240,87 @@ class PRAnalysis:
             print("-" * 50)
         print("=" * 50)
 
+    def extract_first_last_reviews_by_timestamp(self, timestamp):
+        first_review = None
+        last_review = None
+
+        for comment in self.comments_data:
+            if comment['created_at'] >= timestamp:
+                if not first_review:
+                    first_review = comment
+                last_review = comment
+
+        return first_review, last_review
+        
+    def build_pr_analysis_dict(self):
+        pr_analysis_dict = {}
+
+        pr_analysis_dict['url'] = self.url
+        pr_analysis_dict['repo_name'] = self.repo_name
+        pr_analysis_dict['source_branch'] = self.source_branch
+        pr_analysis_dict['target_branch'] = self.target_branch
+        pr_analysis_dict['repo_owner'] = self.repo_owner
+        pr_analysis_dict['creation_timestamp'] = str(self.creation_time)
+        pr_analysis_dict['description'] = self.description
+        pr_analysis_dict['num_commits_before_pr_creation'] = len(self.pr_creation_commits)
+        pr_analysis_dict['num_commits_incremental'] = len(self.incremental_commits)
+        pr_analysis_dict['num_comments_made_by_human'] = self.num_comments - self.ai_reviewer_num_comments
+        pr_analysis_dict['num_comments_made_by_ai'] = self.ai_reviewer_num_comments
+        pr_analysis_dict['merge_timestamp'] = self.merge_time
+        pr_analysis_dict['close_timestamp'] = self.close_time
+
+        #build the 1st & last review suggestion data
+        first_review, last_review = self.extract_first_last_reviews_by_timestamp(datetime.fromtimestamp(0, tz=timezone.utc))
+        if first_review:
+           pr_analysis_dict['first_suggestion_review_type'] = first_review['reviewer']
+           pr_analysis_dict['first_suggestion_review_timestamp'] = str(first_review['created_at'])
+        else:
+           pr_analysis_dict['first_suggestion_review_type'] = 'N.A.'
+           pr_analysis_dict['first_suggestion_review_timestamp'] = 'N.A.'
+
+        if last_review:
+            pr_analysis_dict['last_suggestion_review_type'] = last_review['reviewer']
+            pr_analysis_dict['last_suggestion_review_timestamp'] = str(last_review['created_at'])
+        else:
+            pr_analysis_dict['last_suggestion_review_type'] = 'N.A.'
+            pr_analysis_dict['last_suggestion_review_timestamp'] = 'N.A.'
+                
+        #build the 1st & last incremental commit and review data.
+        num_incremental_commits = len(self.incremental_commits)
+        if num_incremental_commits > 0:
+            pr_analysis_dict['first_incremental_commit_timestamp'] = str(self.incremental_commits[0].commit.committer.date)
+            first_review, last_review = self.extract_first_last_reviews_by_timestamp(self.incremental_commits[0].commit.committer.date)
+            if first_review:
+                pr_analysis_dict['first_incremental_review_type'] = first_review['reviewer']
+                pr_analysis_dict['first_incremental_review_timestamp'] = str(first_review['created_at'])
+            else:
+                pr_analysis_dict['first_incremental_review_type'] = 'N.A.'
+                pr_analysis_dict['first_incremental_review_timestamp'] = 'N.A.'
+
+            pr_analysis_dict['last_incremental_commit_timestamp'] = str(self.incremental_commits[num_incremental_commits - 1].commit.committer.date)
+            first_review, last_review = self.extract_first_last_reviews_by_timestamp(self.incremental_commits[0].commit.committer.date)
+            if last_review:
+                pr_analysis_dict['last_incremental_review_type'] = last_review['reviewer']
+                pr_analysis_dict['last_incremental_review_timestamp'] = str(last_review['created_at'])
+            else:
+                pr_analysis_dict['last_incremental_review_type'] = 'N.A.'
+                pr_analysis_dict['last_incremental_review_timestamp'] = 'N.A.'
+                
+        else:
+            pr_analysis_dict['first_incremental_commit_timestamp'] = 'N.A.'
+            pr_analysis_dict['first_incremental_review_type'] = 'N.A.'
+            pr_analysis_dict['first_incremental_review_timestamp'] = 'N.A.'
+            pr_analysis_dict['last_incremental_commit_timestamp'] = 'N.A.'
+            pr_analysis_dict['last_incremental_review_type'] = 'N.A.'
+            pr_analysis_dict['last_incremental_review_timestamp'] = 'N.A.'
+
+        return pr_analysis_dict
+
     def build_pr_analysis_data(self, pr_url):
+        if not pr_url:
+            print("Failed to get PR analysis due to invalid PR URL.")
+            return {}
+
         try:
             self.url = pr_url
             self.extract_pr_metadata()
@@ -235,6 +328,8 @@ class PRAnalysis:
             self.separate_pr_commits()
             print("Total commits including PR creation commit: ", self.all_commits.totalCount)
             #self.print_pr_commits(self.all_commits)
+            print("Total PR creation commits i.e. commits before PR creation: ", len(self.pr_creation_commits))
+            #self.print_pr_commits(self.pr_creation_commits)
             print("Total incremental commits i.e. commits after PR creation: ", len(self.incremental_commits))
             #self.print_pr_commits(self.incremental_commits)
 
@@ -242,20 +337,33 @@ class PRAnalysis:
             print("=" * 50)
             #print(f"Total review comments: {len(self.comments_data)}")
             print(f"Total review comments: {self.num_comments}")
+            print(f"Total Human review comments: {self.num_comments - self.ai_reviewer_num_comments}")
             print(f"Total AI review comments: {self.ai_reviewer_num_comments}")
             #self.print_review_comments()
             print("=" * 50)
 
+            pr_analysis_dict = self.build_pr_analysis_dict()
+            return pr_analysis_dict
+
         except ValueError as ve:
             print(f"Error: {ve}")
+            print("Failed to get PR analysis.")
+            return {}
+
         except Exception as e:
             print(f"An error occurred: {e}")
+            print("Failed to get PR analysis.")
+            return {}
 
 def main(): 
     pr_analysis = PRAnalysis()
-    pr_analysis.display_config()
-    pr_url = input("Enter the GitHub PR URL: ")
-    pr_analysis.build_pr_analysis_data(pr_url)
+    if pr_analysis.is_valid_config:
+        pr_analysis.display_config()
+        pr_url = input("Enter the GitHub PR URL: ")
+        pr_analysis_dict = pr_analysis.build_pr_analysis_data(pr_url)
+        print(json.dumps(pr_analysis_dict, indent=2))
+    else:
+        print("PR Analysis cannot be retrieved beause it has reiceived invalid configuration.")
 
 if __name__ == "__main__":
     main()
