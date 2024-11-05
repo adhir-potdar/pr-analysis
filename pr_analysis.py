@@ -8,6 +8,7 @@ import requests
 import pytz
 from bs4 import BeautifulSoup
 from pr_analysis_config import PRAnalysisConfig
+import traceback
 
 class PRAnalysis:
     def __init__(self, properties_file='pr_analysis.properties'):
@@ -21,7 +22,13 @@ class PRAnalysis:
             self.git_provider = self.properties.get('git.provider', '')
             self.git_access_token = self.properties.get('git.access_token', '')
             self.git_domain = self.properties.get('git.domain', '')
-            self.github = Github(self.git_access_token)
+            if (self.git_provider.endswith("ENTERPRISE")):
+                self.base_url = self.git_domain + "/api/v3"
+                self.github = Github(base_url=self.base_url, login_or_token=self.git_access_token)
+            else:
+                self.base_url = self.git_domain
+                self.github = Github(self.git_access_token)
+            print("Created the github instance.")
             self.default_reviewer = self.properties.get('default.reviewer', '')
             self.is_ai_reviewer = False
             self.ai_reviewer = self.properties.get('ai.reviewer', '')
@@ -48,9 +55,10 @@ class PRAnalysis:
     def parse_pr_url(self):
         # Escape special characters in domain to handle domains that might contain them
         escaped_domain = re.escape(self.git_domain)
-        pattern = fr"https://{escaped_domain}/([^/]+)/([^/]+)/pull/(\d+)"
+        pattern = fr"{escaped_domain}/([^/]+)/([^/]+)/pull/(\d+)"
         match = re.match(pattern, self.url)
         if match:
+            print("PR URL is valid.")
             return match.groups()
         else:
             raise ValueError("Invalid PR URL format")
@@ -73,7 +81,9 @@ class PRAnalysis:
 
     def extract_pr_metadata(self):
         self.repo_owner, self.repo_name, self.pr_number = self.parse_pr_url()
+        print("Repo name: ", self.repo_name)
         self.repo = self.github.get_repo(f"{self.repo_owner}/{self.repo_name}")
+        #print("Got the repo.")
 
         self.pr = self.repo.get_pull(int(self.pr_number))
         self.creation_time = self.pr.created_at.replace(tzinfo=pytz.UTC)
@@ -204,9 +214,12 @@ class PRAnalysis:
             #else:
             #    print(f"No diff hunk found for comment ID: {comment.id}")
 
-            # Define the pattern
             #pattern = r'<div id="issue"><b>(.*?)</b></div>.*?<div id="fix">(.*?)</div>.*?<div id="code">(.*?)</div>.*?<a href=(.*?)>#(\w+)</a>'
             #if self.is_ai_reviewer and re.search(pattern, comment_data['body'], re.DOTALL):
+            #ai_reviewer_str_1 = "<div id=\"suggestion\">"
+            #ai_reviewer_str_2 = "<div id=\"issue\">"
+            #ai_reviewer_str_3 = "<b>Code suggestion</b>"
+            #if self.is_ai_reviewer and (ai_reviewer_str_1 in comment_data['body']) and (ai_reviewer_str_2 in comment_data['body']) and (ai_reviewer_str_3 in comment_data['body']):
             if self.is_ai_reviewer and re.search(self.ai_reviewer_regex, comment_data['body'], re.DOTALL):
                 comment_data['reviewer'] = self.ai_reviewer
                 self.ai_reviewer_num_comments = self.ai_reviewer_num_comments + 1
@@ -278,8 +291,8 @@ class PRAnalysis:
         pr_analysis_dict['num_commits_incremental'] = len(self.incremental_commits)
         pr_analysis_dict['num_comments_made_by_human'] = self.num_comments - self.ai_reviewer_num_comments
         pr_analysis_dict['num_comments_made_by_ai'] = self.ai_reviewer_num_comments
-        pr_analysis_dict['merge_timestamp'] = self.merge_time
-        pr_analysis_dict['close_timestamp'] = self.close_time
+        pr_analysis_dict['merge_timestamp'] = str(self.merge_time)
+        pr_analysis_dict['close_timestamp'] = str(self.close_time)
 
         #build the 1st & last review suggestion data
         first_review, last_review = self.extract_first_last_reviews_after_timestamp(datetime.fromtimestamp(0, tz=timezone.utc))
@@ -386,11 +399,13 @@ class PRAnalysis:
         except ValueError as ve:
             print(f"Error: {ve}")
             print("Failed to get PR analysis.")
+            #traceback.print_exc()
             return {}
 
         except Exception as e:
             print(f"An error occurred: {e}")
             print("Failed to get PR analysis.")
+            #traceback.print_exc()
             return {}
 
 def main(): 
