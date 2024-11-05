@@ -313,8 +313,18 @@ class PRAnalysis:
         #build the 1st & last commit and review data for PR creation and before 1st incremental commit ==> for full review
         #TODO: this we will have to correlate with Bito analytics data if available.
         num_pr_creation_commits = len(self.pr_creation_commits)
+        num_incremental_commits = len(self.incremental_commits)
         if num_pr_creation_commits > 0:
-            first_review, last_review = self.extract_first_last_reviews_before_timestamp(self.incremental_commits[0].commit.committer.date)
+            first_review = None
+            last_review = None
+
+            #if incremental commit is available then look for the full reviews before incremental review time-stamp
+            #else look with-in full reviews available i.e. case of no incremental commits are there. 
+            if num_incremental_commits > 0:
+                first_review, last_review = self.extract_first_last_reviews_before_timestamp(self.incremental_commits[0].commit.committer.date)
+            else:
+                first_review, last_review = self.extract_first_last_reviews_before_timestamp(self.pr_creation_commits[num_pr_creation_commits - 1].commit.committer.date)
+
             if first_review:
                 pr_analysis_dict['first_full_review_type'] = first_review['reviewer']
                 pr_analysis_dict['first_full_review_timestamp'] = str(first_review['created_at'])
@@ -339,6 +349,9 @@ class PRAnalysis:
         #TODO: this we will have to correlate with Bito analytics data if available.
         num_incremental_commits = len(self.incremental_commits)
         if num_incremental_commits > 0:
+            first_review = None
+            last_review = None
+
             pr_analysis_dict['first_incremental_commit_timestamp'] = str(self.incremental_commits[0].commit.committer.date)
             first_review, last_review = self.extract_first_last_reviews_after_timestamp(self.incremental_commits[0].commit.committer.date)
             if first_review:
@@ -380,9 +393,9 @@ class PRAnalysis:
             print("Total commits including PR creation commit: ", self.all_commits.totalCount)
             #self.print_pr_commits(self.all_commits)
             print("Total PR creation commits i.e. commits before PR creation: ", len(self.pr_creation_commits))
-            #self.print_pr_commits(self.pr_creation_commits)
+            self.print_pr_commits(self.pr_creation_commits)
             print("Total incremental commits i.e. commits after PR creation: ", len(self.incremental_commits))
-            #self.print_pr_commits(self.incremental_commits)
+            self.print_pr_commits(self.incremental_commits)
 
             self.get_review_comments()
             print("=" * 50)
@@ -390,7 +403,7 @@ class PRAnalysis:
             print(f"Total review comments: {self.num_comments}")
             print(f"Total Human review comments: {self.num_comments - self.ai_reviewer_num_comments}")
             print(f"Total AI review comments: {self.ai_reviewer_num_comments}")
-            #self.print_review_comments()
+            self.print_review_comments()
             print("=" * 50)
 
             pr_analysis_dict = self.build_pr_analysis_dict()
