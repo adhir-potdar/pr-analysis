@@ -1,5 +1,6 @@
 # File: pr_analysis.py
 
+import csv
 from datetime import datetime, timezone
 from github import Github
 import json
@@ -54,14 +55,25 @@ class PRAnalysis:
 
     def parse_pr_url(self):
         # Escape special characters in domain to handle domains that might contain them
-        escaped_domain = re.escape(self.git_domain)
-        pattern = fr"{escaped_domain}/([^/]+)/([^/]+)/pull/(\d+)"
+        self.escaped_domain = re.escape(self.git_domain)
+        pattern = fr"{self.escaped_domain}/([^/]+)/([^/]+)/pull/(\d+)"
         match = re.match(pattern, self.url)
         if match:
             print("PR URL is valid.")
             return match.groups()
         else:
             raise ValueError("Invalid PR URL format")
+
+    def parse_repo_url(self, repo_url):
+        # Escape special characters in domain to handle domains that might contain them
+        self.escaped_domain = re.escape(self.git_domain)
+        pattern = fr"{self.escaped_domain}/([^/]+)/([^/]+)"
+        match = re.match(pattern, repo_url)
+        if match:
+            print("Repo URL is valid.")
+            return match.groups()
+        else:
+            raise ValueError("Invalid Repo URL format")
 
     def convert_html_to_plaintext(self):
         # Parse the HTML content
@@ -82,6 +94,7 @@ class PRAnalysis:
     def extract_pr_metadata(self):
         self.repo_owner, self.repo_name, self.pr_number = self.parse_pr_url()
         print("Repo name: ", self.repo_name)
+        print("Owner name: ", self.repo_owner)
         self.repo = self.github.get_repo(f"{self.repo_owner}/{self.repo_name}")
         #print("Got the repo.")
 
@@ -95,7 +108,10 @@ class PRAnalysis:
         # Get PR description
         self.html_description = self.pr.body
         #self.html_description = 'Sample description'
-        self.description = self.convert_html_to_plaintext()
+        if self.html_description:
+            self.description = self.convert_html_to_plaintext()
+        else:
+            self.description = ''
 
         # Get merge and close timestamps
         self.merge_time = self.pr.merged_at
@@ -323,7 +339,7 @@ class PRAnalysis:
             if num_incremental_commits > 0:
                 first_review, last_review = self.extract_first_last_reviews_before_timestamp(self.incremental_commits[0].commit.committer.date)
             else:
-                first_review, last_review = self.extract_first_last_reviews_before_timestamp(self.pr_creation_commits[num_pr_creation_commits - 1].commit.committer.date)
+                first_review, last_review = self.extract_first_last_reviews_after_timestamp(self.pr_creation_commits[0].commit.committer.date)
 
             if first_review:
                 pr_analysis_dict['first_full_review_type'] = first_review['reviewer']
@@ -393,9 +409,9 @@ class PRAnalysis:
             print("Total commits including PR creation commit: ", self.all_commits.totalCount)
             #self.print_pr_commits(self.all_commits)
             print("Total PR creation commits i.e. commits before PR creation: ", len(self.pr_creation_commits))
-            self.print_pr_commits(self.pr_creation_commits)
+            #self.print_pr_commits(self.pr_creation_commits)
             print("Total incremental commits i.e. commits after PR creation: ", len(self.incremental_commits))
-            self.print_pr_commits(self.incremental_commits)
+            #self.print_pr_commits(self.incremental_commits)
 
             self.get_review_comments()
             print("=" * 50)
@@ -403,7 +419,7 @@ class PRAnalysis:
             print(f"Total review comments: {self.num_comments}")
             print(f"Total Human review comments: {self.num_comments - self.ai_reviewer_num_comments}")
             print(f"Total AI review comments: {self.ai_reviewer_num_comments}")
-            self.print_review_comments()
+            #self.print_review_comments()
             print("=" * 50)
 
             pr_analysis_dict = self.build_pr_analysis_dict()
@@ -421,21 +437,112 @@ class PRAnalysis:
             #traceback.print_exc()
             return {}
 
+
+    def get_pr_urls(self, repo_url, start_date, end_date):
+        pr_urls = []
+
+        if not repo_url:
+            print("Failed to get PRs list due to invalid PR URL.")
+            return pr_urls
+
+        try:
+            # Extract owner and repo name from repo URL
+            self.repo_owner, self.repo_name = self.parse_repo_url(repo_url)
+            print("Repo name: ", self.repo_name)
+            print("Owner name: ", self.repo_owner)
+            self.repo = self.github.get_repo(f"{self.repo_owner}/{self.repo_name}")
+            #print("Got the repo.")
+        
+            # Convert string dates to datetime objects with UTC timezone
+            start_datetime = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            end_datetime = datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        
+            # Get all pull requests
+            pulls = self.repo.get_pulls(state='all')
+        
+            pr_list = list(pulls)
+            # Sort pulls by creation time in ascending order
+            pr_list.sort(key=lambda x: x.created_at)
+
+            pr_urls = []
+            for pr in pr_list:
+                created_date = pr.created_at
+            
+                # Check if PR was created within the specified date range
+                if start_datetime <= created_date <= end_datetime:
+                #    pr_urls.append({
+                #        'url': pr.html_url,
+                #        'title': pr.title,
+                #        'created_at': str(pr.created_at),
+                #        'state': pr.state
+                #    })
+                    pr_urls.append(pr.html_url)
+        
+        except ValueError as ve:
+            print(f"Error: {ve}")
+            print("Failed to get repo PRs.")
+            #traceback.print_exc()
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            print("Failed to get repo PRs.")
+            #traceback.print_exc()
+
+        return pr_urls
+
 def main(): 
     pr_analysis = PRAnalysis()
     if pr_analysis.is_valid_config:
-        pr_analysis.display_config()
-        pr_url = input("Enter the GitHub PR URL: ")
-        pr_analysis_dict = pr_analysis.build_pr_analysis_data(pr_url)
-        print(json.dumps(pr_analysis_dict, indent=2))
-
         try:
+            pr_analysis.display_config()
+
+            #pr_url = input("Enter the GitHub PR URL: ")
+            #pr_analysis_dict = pr_analysis.build_pr_analysis_data(pr_url)
+            #print(json.dumps(pr_analysis_dict, indent=2))
+
             # Write PR analysis dictionary to JSON file
-            with open('pr_analysis_data.json', 'w') as json_file:
-                json.dump(pr_analysis_dict, json_file, indent=4)
-                print('Wrote the PR Analysis data in file pr_analysis_data.json')
+            #with open('pr_analysis_data.json', 'w') as json_file:
+            #    json.dump(pr_analysis_dict, json_file, indent=4)
+            #    print('Wrote the PR Analysis data in file pr_analysis_data.json')
+
+            repo_url = input("Enter the GitHub Repo URL: ")
+            print('Repo URL: ', repo_url)
+            start_date = "2024-10-01"  # Format: YYYY-MM-DD
+            end_date = "2024-11-30"    # Format: YYYY-MM-DD
+            pr_urls = pr_analysis.get_pr_urls(repo_url, start_date, end_date)
+            print('Number of PR URLs: ', len(pr_urls))
+            #print('PR URLs: ', pr_urls)
+
+            pr_analysis_dict_list = []
+            for pr_url in pr_urls:
+                pr_analysis_dict = pr_analysis.build_pr_analysis_data(pr_url)
+                print(json.dumps(pr_analysis_dict, indent=2))
+
+                pr_analysis_dict_list.append(pr_analysis_dict)
+
+            if len(pr_analysis_dict_list) > 0:
+                batch_size = 100
+                file_name = pr_analysis.repo_owner + '-' + pr_analysis.repo_name + '.csv'
+                field_names = list(pr_analysis_dict_list[0].keys())
+        
+                with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.DictWriter(csvfile, 
+                                    fieldnames=field_names,
+                                    delimiter=',',
+                                    quoting=csv.QUOTE_MINIMAL)
+            
+                    writer.writeheader()
+            
+                    for i in range(0, len(pr_analysis_dict_list), batch_size):
+                        batch = pr_analysis_dict_list[i:i+batch_size]
+                        writer.writerows(batch)
+                        #print(f"Wrote {i+len(batch)} rows...")
+        
+                print(f"Successfully wrote {len(pr_analysis_dict_list)} rows to {file_name}")
+
         except Exception as e:
-            print('Failed to write PR analysis dictionary to JSON file.')
+            #traceback.print_exc()
+            print('Failed to build PR analysis.')
     else:
         print("PR Analysis cannot be retrieved beause it has reiceived invalid configuration.")
 
